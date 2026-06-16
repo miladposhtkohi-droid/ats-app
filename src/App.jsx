@@ -29,8 +29,10 @@ function App() {
 
   return (
     <div style={{ padding: '2rem', fontFamily: 'sans-serif' }}>
-      <h1>Inloggad som: {session.user.email}</h1>
-      <button onClick={() => supabase.auth.signOut()}>Logga ut</button>
+      <h1 className="text-3xl font-bold text-blue-600">Inloggad som: {session.user.email}</h1>
+      <button onClick={() => supabase.auth.signOut()} className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+        Logga ut
+      </button>
     </div>
   )
 }
