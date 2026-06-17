@@ -12,6 +12,21 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState("jobs") // 'jobs' eller 'kanban'
 
+  async function fetchProfile(userId) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single()
+
+    if (error) {
+      console.error("Kunde inte hämta profil:", error.message)
+    } else {
+      setProfile(data)
+    }
+    setLoading(false)
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -33,21 +48,6 @@ function App() {
 
     return () => listener.subscription.unsubscribe()
   }, [])
-
-  async function fetchProfile(userId) {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single()
-
-    if (error) {
-      console.error("Kunde inte hämta profil:", error.message)
-    } else {
-      setProfile(data)
-    }
-    setLoading(false)
-  }
 
   if (loading) {
     return (
