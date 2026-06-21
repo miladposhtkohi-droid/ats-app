@@ -1,0 +1,36 @@
+# Supabase-konfiguration för lokalt CLI samt deploy.
+# Genereras normalt via `supabase init`, men inkluderas här så att
+# `supabase functions deploy <name>` fungerar direkt.
+
+project_id = "ats-app"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+# ---- Edge Functions ----
+# verify_jwt = true innebär att Supabase validerar Authorization-headern
+# (Bearer <session-jwt>) INNAN funktionen körs. Krävs för att vår
+# requireAdmin() ska kunna läsa req.headers.get("Authorization").
+
+[functions.create-user]
+verify_jwt = true
+
+[functions.update-user-role]
+verify_jwt = true
+
+[functions.delete-user]
+verify_jwt = true
+
+[functions.list-users]
+verify_jwt = true

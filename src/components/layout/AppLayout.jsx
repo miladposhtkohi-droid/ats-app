@@ -18,6 +18,9 @@ export default function AppLayout({
   const navItems = [
     { key: "jobs", label: "Jobb", icon: JobsIcon },
     { key: "kanban", label: "Kanban", icon: KanbanIcon },
+    ...(role === "admin"
+      ? [{ key: "admin", label: "Admin", icon: ShieldIcon }]
+      : []),
   ]
 
   return (
@@ -141,6 +144,20 @@ function LogoutIcon({ className }) {
     <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
       <path
         d="M15 12H4m0 0 3-3m-3 3 3 3M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function ShieldIcon({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path
+        d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
