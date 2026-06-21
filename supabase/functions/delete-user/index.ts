@@ -1,38 +1,62 @@
 import { requireAdmin } from "../_shared/auth.ts"
-import { jsonResponse, errorResponse } from "../_shared/cors.ts"
+import { jsonResponse, errorResponse, handleOptions, serializeError } from "../_shared/cors.ts"
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-      },
-    })
-  }
+  if (req.method === "OPTIONS") return handleOptions()
 
   try {
+    console.log("[delete-user] Anrop mottaget, method:", req.method)
+
     const auth = await requireAdmin(req.headers.get("Authorization"))
     if (!auth.ok) return auth.response
     const { user: caller, supabase } = auth
 
-    const { userId } = await req.json()
+    // --- Läs body ---
+    let body: { userId?: unknown }
+    try {
+      body = await req.json()
+    } catch (parseErr) {
+      console.error("[delete-user] Kunde inte parsa JSON-body:", serializeError(parseErr))
+      return errorResponse("Ogiltig JSON i body", 400)
+    }
+
+    const userId = typeof body.userId === "string" ? body.userId.trim() : ""
+
+    console.log("[delete-user] Body mottagen:", {
+      userId: userId || "(saknas)",
+      callerId: caller.id,
+    })
 
     if (!userId) {
+      console.warn("[delete-user] userId saknas i body")
       return errorResponse("userId krävs", 400)
     }
 
     // Skydd: en admin får inte radera sitt eget konto via denna funktion.
     if (userId === caller.id) {
+      console.warn("[delete-user] Admin försökte ta bort sitt eget konto:", caller.id)
       return errorResponse("Du kan inte ta bort ditt eget konto", 400)
     }
 
-    // --- 1) Ta bort från auth.users (kaskad-borttagning sköter ofta profiles via FK, men vi tar bort explicit också) ---
-    const { error: authError } = await supabase.auth.admin.deleteUser(userId)
+    // --- 1) Ta bort från auth.users ---
+    console.log("[delete-user] Försöker ta bort auth-användare:", userId)
+    const { data: deleteData, error: authError } = await supabase.auth.admin.deleteUser(userId)
 
+    // Auth-fel (AuthError) har non-enumerable props → strängsätts annars till "{}".
     if (authError) {
-      return errorResponse("Kunde inte ta bort auth-användare: " + authError.message, 500)
+      console.error(
+        "[delete-user] deleteUser misslyckades för",
+        userId,
+        ":",
+        serializeError(authError)
+      )
+      return errorResponse(
+        "Kunde inte ta bort auth-användare: " + serializeError(authError),
+        500
+      )
     }
+
+    console.log("[delete-user] Auth-användare borttagen:", userId, deleteData)
 
     // --- 2) Ta bort från profiles (om kaskad inte är konfigurerat) ---
     const { error: profileError } = await supabase
@@ -40,13 +64,19 @@ Deno.serve(async (req) => {
       .delete()
       .eq("id", userId)
 
-    // Vi är inte hårda på profileError här – auth-användaren är redan borttagen.
+    // Inte kritiskt – auth-användaren är redan borttagen.
     if (profileError) {
-      console.warn("profiles-delete misslyckades:", profileError.message)
+      console.warn(
+        "[delete-user] profiles-delete misslyckades (ej kritiskt):",
+        serializeError(profileError)
+      )
+    } else {
+      console.log("[delete-user] Profil borttagen:", userId)
     }
 
-    return jsonResponse({ success: true })
+    return jsonResponse({ success: true, userId })
   } catch (err) {
-    return errorResponse("Serverfel: " + String(err), 500)
+    console.error("[delete-user] Oväntat fel:", serializeError(err))
+    return errorResponse("Serverfel: " + serializeError(err), 500)
   }
 })

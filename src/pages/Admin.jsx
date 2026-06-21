@@ -23,11 +23,19 @@ const ROLES = ["admin", "customer"]
  *  - FunctionsFetchError: kunde inte nå Supabase överhuvudtaget (CORS/DNS).
  */
 async function callFn(name, body) {
+  console.log(`[Admin] invoke "${name}" med body:`, body)
   const { data, error } = await supabase.functions.invoke(name, {
-    body,
+    // invoke strängsätter automatiskt ett objekt, men vi är explicita
+    // så att vi är 100% säkra på att Content-Type blir application/json.
+    body: JSON.stringify(body),
     // invoke skickar automatiskt nuvarande sessions JWT om klienten är
     // inloggad, så Authorization-headern blir korrekt.
   })
+
+  // Explicit loggning av båda fälten separat så det aldrig visas som "{}".
+  console.log(`[Admin] svar från "${name}":`)
+  console.log("  → data :", data)
+  console.log("  → error:", error)
 
   if (error instanceof FunctionsHttpError) {
     // Försök läsa ut { error: "..." } från Edge Functionens svar.
