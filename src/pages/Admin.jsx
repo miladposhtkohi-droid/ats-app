@@ -36,6 +36,16 @@ async function callFn(name, body) {
   console.log(`[Admin] svar från "${name}":`)
   console.log("  → data :", data)
   console.log("  → error:", error)
+  // Vid FunctionsHttpError innehåller error.context det faktiska HTTP-svaret
+  // (status + body). Logga det direkt så att man ser *vilket* fel Edge
+  // Functionen returnerade – annars syns bara "FunctionsHttpError".
+  if (error instanceof FunctionsHttpError && error.context) {
+    console.warn(`[Admin] HTTP ${error.context.status} från "${name}".`)
+    console.warn(
+      "[Admin] Detta betyder att funktionen körs men returnerade ett fel.",
+      "Kolla Edge Function-loggarna i Supabase Dashboard → Functions → Logs."
+    )
+  }
 
   if (error instanceof FunctionsHttpError) {
     // Försök läsa ut { error: "..." } från Edge Functionens svar.

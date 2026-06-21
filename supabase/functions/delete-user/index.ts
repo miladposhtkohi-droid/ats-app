@@ -38,6 +38,22 @@ Deno.serve(async (req) => {
       return errorResponse("Du kan inte ta bort ditt eget konto", 400)
     }
 
+    // --- 0) Kontrollera att användaren faktiskt existerar i Auth ---
+    // deleteUser på ett icke-existerande UUID returnerar "User not found",
+    // vilket är en mycket vanlig orsak till non-2xx. Vi kollar explicit först
+    // så att frontend får ett tydligt 404 istället för ett kryptiskt 500.
+    const { data: existingUser, error: lookupError } =
+      await supabase.auth.admin.getUserById(userId)
+    if (lookupError || !existingUser?.user) {
+      console.warn(
+        "[delete-user] Användaren existerar inte i Auth:",
+        userId,
+        "→",
+        serializeError(lookupError)
+      )
+      return errorResponse("Användaren hittades inte i Auth.", 404)
+    }
+
     // --- 1) Ta bort från auth.users ---
     console.log("[delete-user] Försöker ta bort auth-användare:", userId)
     const { data: deleteData, error: authError } = await supabase.auth.admin.deleteUser(userId)
@@ -50,6 +66,7 @@ Deno.serve(async (req) => {
         ":",
         serializeError(authError)
       )
+      // 401/403 från deleteUser nästan alltid = fel service_role-nyckel.
       return errorResponse(
         "Kunde inte ta bort auth-användare: " + serializeError(authError),
         500

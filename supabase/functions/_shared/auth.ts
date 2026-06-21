@@ -4,14 +4,22 @@ import { errorResponse, serializeError } from "./cors.ts"
 /**
  * Skapar en Supabase-klient med service_role – körs ENDAST på servern (Edge Function).
  * service_role-nyckeln exponeras aldrig i frontend.
+ *
+ * VIKTIGT: Om nyckeln saknas kastar vi ett explicit fel istället för att tyst
+ * skapa en klient med `key = ""`. En tom nyckel gör att auth.admin-anropen
+ * (listUsers, deleteUser, ...) returnerar "Invalid API key" / 401, vilket är
+ * en mycket vanlig orsak till att delete-user returnerar non-2xx.
  */
 export function adminClient() {
   const url = Deno.env.get("SUPABASE_URL")
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
   if (!url || !key) {
-    console.error("[auth] Saknar SUPABASE_URL eller SUPABASE_SERVICE_ROLE_KEY")
+    throw new Error(
+      "Serverfel: SUPABASE_URL eller SUPABASE_SERVICE_ROLE_KEY saknas i Edge Function-miljön. " +
+        "Kör: supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<nyckel>"
+    )
   }
-  return createClient(url ?? "", key ?? "", {
+  return createClient(url, key, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
