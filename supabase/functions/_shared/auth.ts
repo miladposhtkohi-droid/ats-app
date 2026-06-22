@@ -13,12 +13,34 @@ import { errorResponse, serializeError } from "./cors.ts"
 export function adminClient() {
   const url = Deno.env.get("SUPABASE_URL")
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")
+
+  // Diagnostik: visa om nyckeln finns och vilka prefix-tecken den har,
+  // utan att logga själva nyckeln. Detta gör det trivialt att se om fel
+  // nyckel (t.ex. anon-nyckeln) har satts som service_role-nyckel.
+  console.log("[auth] SUPABASE_URL satt:", Boolean(url))
+  console.log(
+    "[auth] SUPABASE_SERVICE_ROLE_KEY satt:",
+    Boolean(key),
+    key ? `prefix="${key.slice(0, 8)}..." len=${key.length}` : ""
+  )
+
   if (!url || !key) {
     throw new Error(
       "Serverfel: SUPABASE_URL eller SUPABASE_SERVICE_ROLE_KEY saknas i Edge Function-miljön. " +
         "Kör: supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<nyckel>"
     )
   }
+
+  // Varningsgrad: om nyckeln ser ut att vara anon-nyckeln (börjar med "eyJ"
+  // är normalt för båda, men service_role-nyckeln är längre/annan). Vi kan
+  // inte garantera skillnad på prefix, men vi flaggar om den är misstänkt kort.
+  if (key.length < 100) {
+    console.warn(
+      "[auth] VARNING: SUPABASE_SERVICE_ROLE_KEY verkar kort (<100 tecken). " +
+        "Dubbelkolla att du inte har satt anon-nyckeln av misstag."
+    )
+  }
+
   return createClient(url, key, {
     auth: {
       autoRefreshToken: false,

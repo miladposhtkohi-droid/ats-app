@@ -1,10 +1,5 @@
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "../supabaseClient"
-import {
-  FunctionsHttpError,
-  FunctionsRelayError,
-  FunctionsFetchError,
-} from "@supabase/supabase-js"
 import Button from "../components/ui/Button"
 import Input from "../components/ui/Input"
 import { Card } from "../components/ui/Card"
@@ -13,77 +8,37 @@ import { PageHeader, EmptyState, LoadingState } from "../components/ui/Page"
 
 const ROLES = ["admin", "customer"]
 
-/**
- * Helper runt supabase.functions.invoke med tydlig felhantering.
- *
- * Vanliga fel och vad de betyder:
- *  - FunctionsHttpError:  funktionen existerar inte (404) ELLER returnerade
- *                         ett fel (t.ex. 401/403). Läs error.context.json().
- *  - FunctionsRelayError: nätverks/relay-problem hos Supabase.
- *  - FunctionsFetchError: kunde inte nå Supabase överhuvudtaget (CORS/DNS).
- */
-async function callFn(name, body) {
+// Helper som alltid skickar admin-sessionens JWT till Edge Functions
+async function callFn(name, body, session) {
   console.log(`[Admin] invoke "${name}" med body:`, body)
+
   const { data, error } = await supabase.functions.invoke(name, {
-    // invoke strängsätter automatiskt ett objekt, men vi är explicita
-    // så att vi är 100% säkra på att Content-Type blir application/json.
-    body: JSON.stringify(body),
-    // invoke skickar automatiskt nuvarande sessions JWT om klienten är
-    // inloggad, så Authorization-headern blir korrekt.
+    body,
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+      "Content-Type": "application/json",
+      apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+    },
   })
 
-  // Explicit loggning av båda fälten separat så det aldrig visas som "{}".
   console.log(`[Admin] svar från "${name}":`)
   console.log("  → data :", data)
   console.log("  → error:", error)
-  // Vid FunctionsHttpError innehåller error.context det faktiska HTTP-svaret
-  // (status + body). Logga det direkt så att man ser *vilket* fel Edge
-  // Functionen returnerade – annars syns bara "FunctionsHttpError".
-  if (error instanceof FunctionsHttpError && error.context) {
-    console.warn(`[Admin] HTTP ${error.context.status} från "${name}".`)
-    console.warn(
-      "[Admin] Detta betyder att funktionen körs men returnerade ett fel.",
-      "Kolla Edge Function-loggarna i Supabase Dashboard → Functions → Logs."
-    )
-  }
 
-  if (error instanceof FunctionsHttpError) {
-    // Försök läsa ut { error: "..." } från Edge Functionens svar.
-    let detail = `${error.context.status} från "${name}"`
+  // Om Edge Function returnerar non‑2xx får vi en FunctionsHttpError
+  if (error && "context" in error && error.context) {
     try {
       const json = await error.context.json()
-      detail = json.error || JSON.stringify(json)
+      console.warn("[Admin] Edge Function fel-body:", json)
+      throw new Error(json.error || JSON.stringify(json))
     } catch {
-      try {
-        const text = await error.context.text()
-        if (text) detail = text
-      } catch {
-        /* behåll status */
-      }
+      const text = await error.context.text()
+      console.warn("[Admin] Edge Function fel-text:", text)
+      throw new Error(text || "Okänt Edge Function-fel")
     }
-    // 404 = funktionen är inte deployad.
-    if (error.context.status === 404) {
-      detail = `Funktionen "${name}" finns inte på Supabase (404). ` +
-        `Har du kört "supabase functions deploy ${name}"?`
-    }
-    throw new Error(detail)
   }
 
-  if (error instanceof FunctionsRelayError) {
-    throw new Error(`Relay-fel ("${name}"): ${error.message}`)
-  }
-
-  if (error instanceof FunctionsFetchError) {
-    throw new Error(
-      `Kunde inte nå Supabase ("${name}"): ${error.message}. ` +
-        `Kontrollera VITE_SUPABASE_URL och nätverk/CORS.`
-    )
-  }
-
-  if (error) {
-    throw new Error(error.message)
-  }
-
+  if (error) throw error
   return data
 }
 
@@ -102,31 +57,36 @@ export default function Admin({ session }) {
   const currentUserId = session?.user?.id
 
   const fetchUsers = useCallback(async () => {
+    if (!session) return
     setLoading(true)
     setError(null)
     try {
-      const data = await callFn("list-users", {})
-      setUsers(data.users ?? [])
+      const data = await callFn("list-users", {}, session)
+      const list = Array.isArray(data?.users) ? data.users : []
+      if (!Array.isArray(data?.users)) {
+        console.warn("[Admin] list-users returnerade ingen 'users'-array. data =", data)
+      }
+      setUsers(list)
     } catch (err) {
       setError(err.message)
+      setUsers([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [session])
 
   useEffect(() => {
-    // Data fetching on mount – setState sker asynkront efter await, inte synkront.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchUsers()
   }, [fetchUsers])
 
   async function handleCreate(e) {
     e.preventDefault()
+    if (!session) return
     setError(null)
     setInfo(null)
     setCreating(true)
     try {
-      await callFn("create-user", { email, password, role })
+      await callFn("create-user", { email, password, role }, session)
       setEmail("")
       setPassword("")
       setRole("customer")
@@ -140,22 +100,23 @@ export default function Admin({ session }) {
   }
 
   async function handleRoleChange(userId, newRole) {
+    if (!session) return
     setError(null)
     setInfo(null)
     try {
-      await callFn("update-user-role", { userId, role: newRole })
+      await callFn("update-user-role", { userId, role: newRole }, session)
       setUsers((prev) =>
         prev.map((u) => (u.id === userId ? { ...u, role: newRole } : u))
       )
       setInfo("Roll uppdaterad.")
     } catch (err) {
       setError(err.message)
-      // Återställ select genom att tvinga omrendering med tidigare värde
       await fetchUsers()
     }
   }
 
   async function handleDelete(user) {
+    if (!session) return
     setError(null)
     setInfo(null)
     const ok = window.confirm(
@@ -163,7 +124,7 @@ export default function Admin({ session }) {
     )
     if (!ok) return
     try {
-      await callFn("delete-user", { userId: user.id })
+      await callFn("delete-user", { userId: user.id }, session)
       setUsers((prev) => prev.filter((u) => u.id !== user.id))
       setInfo(`Konto ${user.email} borttaget.`)
     } catch (err) {
